@@ -100,11 +100,84 @@ def tag_chip(d, x, y, label, color):
 # ---------------------------------------------------------------- masthead
 def masthead(d):
     cx = W // 2
-    tracked(d, "THE WORLD IN ONE PICTURE", cx, 30, font(F_SANS_B, 24), 6, INK)
-    d.line([70, 68, W - 70, 68], fill=INK, width=2)
-    centered(d, "TUESDAY", cx, 76, font(F_SERIF_B, 76))
-    centered(d, "17 NOVEMBER 2026", cx, 158, font(F_SERIF_B, 47), RED)
-    d.rectangle([26, 216, W - 26, 222], fill=INK)
+    tracked(d, "THE WORLD IN ONE PICTURE", cx, 26, font(F_SANS_B, 22), 6, INK)
+    d.line([70, 60, W - 70, 60], fill=INK, width=2)
+    centered(d, "TUESDAY", cx, 66, font(F_SERIF_B, 62))
+    centered(d, "17 NOVEMBER 2026", cx, 132, font(F_SERIF_B, 40), RED)
+    d.rectangle([26, 182, W - 26, 187], fill=INK)
+
+
+# ---------------------------------------------------------------- world map
+# Dot-matrix world map: 100 x 22 cells, equirectangular.
+# '#' = land, '.' = ocean. Rows run lat ~+77 (top) to ~-54 (bottom),
+# columns run lon -180 (left) to +180 (right).
+MAP_COLS = 100
+MAP_ROWS = [
+    "......####" "#####....." ".........." ".........." ".........." ".........." "##########" "##########" "##########" "######....",
+    "....######" "###.######" "#########." "........##" "####......" "..########" "##########" "##########" "##########" "########..",
+    "...#######" "###.######" "##########" "####......" "####......" "..########" "##########" "##########" "##########" "######....",
+    ".........." "##########" "##########" "##..######" "#......###" "##########" "##########" "##########" "##########" "######....",
+    ".........#" "##########" "##########" "#........." ".......###" "##########" "##########" "##########" "##########" "#####.....",
+    ".........." ".#########" "##########" "##........" ".......###" "##########" "##########" "##########" "#####....#" "#.........",
+    ".........." "##########" "##########" "###......." "......####" "##########" "##########" "##########" "#######.##" "..........",
+    ".........." ".#########" "##########" "#........." "....######" "##########" "##########" "##########" "########.#" "..........",
+    ".........." "...#######" "##########" ".........." "....######" "##########" "#######..#" "##########" "######...." "..........",
+    ".........." "....######" "#######..." ".........." "....######" "##########" "#######..#" "####..####" "#...##...." "..........",
+    ".........." ".........." ".......###" "##........" "....######" "##########" "#........#" "###...####" "#.#####..." "..........",
+    ".........." ".........." ".......###" "##########" "......####" "#########." ".........." "...##..##." ".##..##..." "..........",
+    ".........." ".........." "........##" "##########" "#.....####" "########.." ".........." "....##..##" "...##..##." "..........",
+    ".........." ".........." ".........#" "##########" "......####" "#######..." ".........." ".........." "##########" "#.........",
+    ".........." ".........." ".........#" "########.." ".......###" "######...." ".........." ".........." "##########" "##........",
+    ".........." ".........." "........##" "#######..." "......####" "#####....." ".........." ".........." "##########" "##........",
+    ".........." ".........." ".........#" "#######..." "......####" "####......" ".........." ".........." "##########" "#.........",
+    ".........." ".........." ".........." "#######..." "......####" "###......." ".........." ".........." ".#########" "..........",
+    ".........." ".........." ".........." "######...." ".........." ".........." ".........." ".........." ".#########" ".....##...",
+    ".........." ".........." ".........." "####......" ".........." ".........." ".........." ".........." ".........." "....##....",
+    ".........." ".........." ".........." "##........" ".........." ".........." ".........." ".........." ".........." "..........",
+    ".........." ".........." ".........." "#........." ".........." ".........." ".........." ".........." ".........." "..........",
+]
+
+# Story pins: story number -> (col, row) on the map grid.
+PINS = {
+    1: (59, 6),    # Crimea / Black Sea
+    2: (66, 9),    # Strait of Hormuz
+    3: (84, 10),   # Manila
+    4: (16, 7),    # California (Nvidia)
+    5: (12, 4),    # Redmond (Microsoft), offset NW of pin 4
+    6: (89, 7),    # Japan
+    7: (57, 8),    # Gaza / Eastern Mediterranean
+    8: (53, 6),    # Geneva
+    9: (49, 4),    # Brussels / EU
+}
+
+
+def world_map(d, box):
+    """Draw the dot-matrix map inside box, with numbered red pins."""
+    x0, y0, x1, y1 = box
+    d.rectangle([x0, y0, x1, y1], fill=(238, 241, 238), outline=INK, width=2)
+    grid_w = (x1 - x0) - 36
+    grid_h = (y1 - y0) - 52
+    px = grid_w / MAP_COLS
+    py = grid_h / len(MAP_ROWS)
+    ox = x0 + 18
+    oy = y0 + 12
+    land = (43, 52, 63)
+    for r, row in enumerate(MAP_ROWS):
+        row = row.ljust(MAP_COLS, ".")[:MAP_COLS]
+        cy = oy + (r + 0.5) * py
+        for c, ch in enumerate(row):
+            if ch == "#":
+                cx = ox + (c + 0.5) * px
+                d.ellipse([cx - 3.1, cy - 3.1, cx + 3.1, cy + 3.1], fill=land)
+    pf = font(F_SANS_B, 15)
+    for num, (c, r) in PINS.items():
+        cx = ox + (c + 0.5) * px
+        cy = oy + (r + 0.5) * py
+        d.ellipse([cx - 11, cy - 11, cx + 11, cy + 11], fill=RED, outline=(255, 255, 255), width=2)
+        s = str(num)
+        d.text((cx - text_w(d, s, pf) / 2, cy - 9), s, font=pf, fill=(255, 255, 255))
+    cap = "NINE STORIES \u00b7 FIVE CONTINENTS \u00b7 ONE DAY"
+    centered(d, cap, (x0 + x1) // 2, y1 - 34, font(F_SANS_B, 19), INK)
 
 
 # ---------------------------------------------------------------- hero art
@@ -215,21 +288,92 @@ def icon_jet(d, x, y, s):
               fill=(30, 30, 34))
 
 
+def icon_bridge_mini(d, x, y, s):
+    """Tiny bridge with a broken middle span, over water."""
+    deck = y + s * 0.52
+    col = (52, 56, 62)
+    d.rectangle([x + s * 0.28, deck - s * 0.30, x + s * 0.34, deck], fill=col)
+    d.rectangle([x + s * 0.66, deck - s * 0.30, x + s * 0.72, deck], fill=col)
+    d.rectangle([x + s * 0.02, deck, x + s * 0.42, deck + s * 0.09], fill=col)
+    d.rectangle([x + s * 0.60, deck, x + s * 0.98, deck + s * 0.09], fill=col)
+    d.polygon([(x + s * 0.42, deck + s * 0.02), (x + s * 0.60, deck + s * 0.20),
+               (x + s * 0.60, deck + s * 0.28), (x + s * 0.42, deck + s * 0.10)], fill=col)
+    d.line([x + s * 0.31, deck - s * 0.30, x + s * 0.04, deck], fill=col, width=2)
+    d.line([x + s * 0.69, deck - s * 0.30, x + s * 0.96, deck], fill=col, width=2)
+    for i in range(3):
+        wx = x + s * (0.08 + i * 0.32)
+        d.arc([wx, y + s * 0.72, wx + s * 0.26, y + s * 0.92], 180, 360, fill=WATER, width=2)
+
+
+def icon_crossing(d, x, y, s):
+    """Aid truck with a cross, for the Gaza crossings story."""
+    col = (52, 56, 62)
+    d.rectangle([x + s * 0.04, y + s * 0.24, x + s * 0.62, y + s * 0.66], fill=col)
+    d.polygon([(x + s * 0.62, y + s * 0.40), (x + s * 0.82, y + s * 0.40),
+               (x + s * 0.94, y + s * 0.56), (x + s * 0.94, y + s * 0.66),
+               (x + s * 0.62, y + s * 0.66)], fill=col)
+    cx, cy = x + s * 0.33, y + s * 0.45
+    d.rectangle([cx - s * 0.045, cy - s * 0.13, cx + s * 0.045, cy + s * 0.13], fill=(255, 255, 255))
+    d.rectangle([cx - s * 0.13, cy - s * 0.045, cx + s * 0.13, cy + s * 0.045], fill=(255, 255, 255))
+    for wx in (x + s * 0.20, x + s * 0.78):
+        d.ellipse([wx - s * 0.09, y + s * 0.62, wx + s * 0.09, y + s * 0.80], fill=INK)
+    d.line([x + s * 0.02, y + s * 0.84, x + s * 0.98, y + s * 0.84], fill=INK, width=2)
+
+
+def icon_robot(d, x, y, s):
+    """Robot head with antenna, for the autonomous-weapons talks."""
+    col = (52, 56, 62)
+    cx = x + s * 0.5
+    d.line([cx, y + s * 0.06, cx, y + s * 0.22], fill=INK, width=3)
+    d.ellipse([cx - s * 0.06, y, cx + s * 0.06, y + s * 0.12], fill=RED)
+    d.rectangle([x + s * 0.16, y + s * 0.22, x + s * 0.84, y + s * 0.80], outline=col, width=4)
+    for ex in (x + s * 0.36, x + s * 0.64):
+        d.ellipse([ex - s * 0.07, y + s * 0.40, ex + s * 0.07, y + s * 0.54], fill=RED)
+    d.rectangle([x + s * 0.34, y + s * 0.64, x + s * 0.66, y + s * 0.70], fill=col)
+    d.rectangle([x + s * 0.06, y + s * 0.42, x + s * 0.16, y + s * 0.58], fill=col)
+    d.rectangle([x + s * 0.84, y + s * 0.42, x + s * 0.94, y + s * 0.58], fill=col)
+
+
+def icon_bag(d, x, y, s):
+    """Shopping bag with a slash, for the Temu / illegal goods story."""
+    col = (52, 56, 62)
+    d.polygon([(x + s * 0.16, y + s * 0.30), (x + s * 0.84, y + s * 0.30),
+               (x + s * 0.90, y + s * 0.92), (x + s * 0.10, y + s * 0.92)], outline=col, width=4)
+    d.arc([x + s * 0.32, y + s * 0.06, x + s * 0.68, y + s * 0.44], 180, 360, fill=col, width=4)
+    d.line([x + s * 0.24, y + s * 0.80, x + s * 0.76, y + s * 0.42], fill=RED, width=5)
+
+
 # ---------------------------------------------------------------- panels
-def panel(d, box, tag, tag_color, headline, caption, icon=None, headline_max=31):
+def num_badge(d, x, y, num):
+    """Red disc with a white numeral, matching the map pins."""
+    r = 13
+    d.ellipse([x, y, x + 2 * r, y + 2 * r], fill=RED)
+    f = font(F_SANS_B, 17)
+    s = str(num)
+    d.text((x + r - text_w(d, s, f) / 2, y + r - 10), s, font=f, fill=(255, 255, 255))
+    return 2 * r
+
+
+def panel(d, box, num, tag, tag_color, headline, caption, icon=None, headline_max=26):
     x0, y0, x1, y1 = box
     d.rectangle([x0, y0, x1, y1], fill=PAPER, outline=INK, width=2)
-    pad = 12
-    tag_chip(d, x0 + pad, y0 + pad, tag, tag_color)
+    pad = 10
+    bw = num_badge(d, x0 + pad, y0 + pad, num)
+    tag_f = font(F_SANS_B, 14)
+    label_w = int(text_w(d, tag, tag_f)) + 14
+    tx0 = x0 + pad + bw + 7
+    d.rectangle([tx0, y0 + pad + 1, tx0 + label_w, y0 + pad + 25], fill=tag_color)
+    d.text((tx0 + 7, y0 + pad + 5), tag, font=tag_f, fill=(255, 255, 255))
     if icon:
-        icon(d, x1 - pad - 52, y0 + pad - 2, 52)
+        icon(d, x1 - pad - 42, y0 + pad - 2, 42)
     tx = x0 + pad
     tw = (x1 - x0) - 2 * pad
-    hy = y0 + pad + 36
-    hf, hlines, hlh = fit_block(d, headline, F_SANS_B, headline_max, 24, tw, 104, 1.12)
+    hy = y0 + pad + 38
+    hf, hlines, hlh = fit_block(d, headline, F_SANS_B, headline_max, 19, tw,
+                                (y1 - y0) - 96, 1.12)
     hy = draw_lines(d, hlines, tx, hy, hf, hlh)
-    cy = hy + 5
-    cf, clines, clh = fit_block(d, caption, F_SANS, 20, 16, tw, (y1 - 8) - cy, 1.22)
+    cy = hy + 4
+    cf, clines, clh = fit_block(d, caption, F_SANS, 17, 13, tw, (y1 - 7) - cy, 1.2)
     draw_lines(d, clines, tx, cy, cf, clh)
 
 
@@ -250,6 +394,46 @@ def hero_panel(d, box):
     draw_lines(d, clines, tx, hy + 6, cf, clh)
 
 
+STORIES = [
+    (1, "EUROPE", (31, 78, 120),
+     "UKRAINE BLOWS A GAP IN THE CRIMEA BRIDGE",
+     "Strike collapses a section of the Kerch Bridge; Zelenskyy hails "
+     "an 'unprecedented operation'.", icon_bridge_mini),
+    (2, "MIDDLE EAST", (146, 96, 16),
+     "TANKERS HIT MINES IN HORMUZ, IRAN SAYS",
+     "Guards claim two tankers struck mines; a third US carrier "
+     "arrives.", icon_tanker),
+    (3, "ASIA", (46, 107, 52),
+     "TRUMP LANDS IN MANILA FOR ASEAN SUMMIT",
+     "Signs a trade statement with Thailand; tour ends in China with "
+     "Xi\u2013Putin talks.", icon_flags),
+    (4, "BUSINESS", (91, 58, 142),
+     "NVIDIA'S FIRST EARNINGS SINCE HUANG STEPPED DOWN",
+     "Founder signals he would return as the chip giant reports.",
+     icon_chip),
+    (5, "TECH", (140, 47, 57),
+     "MICROSOFT 365 OUTAGE DISRUPTS MILLIONS",
+     "Global failure hit users in 70+ countries; services restored.",
+     icon_cloud),
+    (6, "ASIA-PACIFIC", (23, 97, 107),
+     "JAPAN SCRAMBLES JETS OVER RUSSIAN AIRCRAFT",
+     "Tokyo protests after two suspected planes enter its airspace.",
+     icon_jet),
+    (7, "MIDDLE EAST", (146, 96, 16),
+     "WEST URGES ISRAEL TO OPEN GAZA CROSSINGS",
+     "UK, Australia, Canada and Italy call the aid situation "
+     "catastrophic.", icon_crossing),
+    (8, "WORLD", (70, 70, 70),
+     "128 STATES DEBATE A BAN ON KILLER ROBOTS",
+     "UN talks in Geneva weigh a treaty on lethal autonomous weapons.",
+     icon_robot),
+    (9, "EUROPE", (31, 78, 120),
+     "EU CHARGES TEMU OVER ILLEGAL GOODS",
+     "Brussels says the platform does too little to stop illegal sales.",
+     icon_bag),
+]
+
+
 def build():
     img = Image.new("RGB", (W, H), CREAM)
     d = ImageDraw.Draw(img)
@@ -257,42 +441,20 @@ def build():
     d.rectangle([17, 17, W - 17, H - 17], outline=INK, width=1)
 
     masthead(d)
-    hero_panel(d, (26, 232, W - 26, 540))
+    world_map(d, (26, 198, W - 26, 436))
 
     gx0, gx1 = 26, W - 26
-    colw = (gx1 - gx0 - 24) // 3
-    row_a = (550, 772)
-    boxes_a = [(gx0 + i * (colw + 12), row_a[0], gx0 + i * (colw + 12) + colw, row_a[1])
-               for i in range(3)]
-    panel(d, boxes_a[0], "MIDDLE EAST", (146, 96, 16),
-          "TANKERS HIT MINES IN HORMUZ, IRAN SAYS",
-          "Revolutionary Guards claim two tankers struck mines in the strait; "
-          "a third US carrier arrives in the Middle East.", icon_tanker)
-    panel(d, boxes_a[1], "ASIA", (46, 107, 52),
-          "TRUMP LANDS IN MANILA FOR ASEAN SUMMIT",
-          "Signs a trade statement with Thailand; the Asia tour ends in "
-          "China with Xi\u2013Putin talks.", icon_flags)
-    panel(d, boxes_a[2], "TECH", (140, 47, 57),
-          "MICROSOFT 365 OUTAGE DISRUPTS MILLIONS",
-          "Global failure hit users in 70+ countries; services restored "
-          "during the day.", icon_cloud)
+    colw = (gx1 - gx0 - 20) // 3
+    rows_y = [(448, 612), (620, 784), (792, 956)]
+    for i, (num, tag, color, head, cap, icon) in enumerate(STORIES):
+        r, c = divmod(i, 3)
+        x0 = gx0 + c * (colw + 10)
+        box = (x0, rows_y[r][0], x0 + colw, rows_y[r][1])
+        panel(d, box, num, tag, color, head, cap, icon)
 
-    colw2 = (gx1 - gx0 - 12) // 2
-    row_b = (782, 966)
-    boxes_b = [(gx0 + i * (colw2 + 12), row_b[0], gx0 + i * (colw2 + 12) + colw2, row_b[1])
-               for i in range(2)]
-    panel(d, boxes_b[0], "BUSINESS", (91, 58, 142),
-          "NVIDIA'S FIRST EARNINGS SINCE HUANG STEPPED DOWN",
-          "Founder signals he would return as chip giant reports; tech "
-          "stocks slide into the print.", icon_chip, headline_max=28)
-    panel(d, boxes_b[1], "ASIA-PACIFIC", (23, 97, 107),
-          "JAPAN SCRAMBLES JETS OVER RUSSIAN AIRCRAFT",
-          "Tokyo protests after two suspected Russian planes enter its "
-          "airspace.", icon_jet, headline_max=28)
-
-    d.line([70, 976, W - 70, 976], fill=INK, width=2)
-    centered(d, "17 NOV 2026 \u00b7 THE DAY'S NEWS IN ONE IMAGE", W // 2, 984,
-             font(F_SANS_B, 20))
+    d.line([70, 966, W - 70, 966], fill=INK, width=2)
+    centered(d, "17 NOV 2026 \u00b7 THE DAY'S NEWS IN ONE IMAGE", W // 2, 974,
+             font(F_SANS_B, 19))
     img.save(OUT, "PNG")
     print("wrote", OUT, os.path.getsize(OUT), "bytes")
 

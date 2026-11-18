@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/news-image-20261117/qmyCode/nov17-world-in-one-picture/rank.svg)](https://make.fun/bounty/news-image-20261117/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261117)
 [![reward](https://make.fun/badge/news-image-20261117/qmyCode/nov17-world-in-one-picture/reward.svg)](https://make.fun/bounty/news-image-20261117/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261117)
 
-One image that sums up the world's news of Tuesday 17 November 2026: a drawn newspaper front page covering the day's six biggest stories — Ukraine's strike on the Crimea Bridge, tankers hitting mines in the Strait of Hormuz, Trump landing in Manila for the ASEAN summit, Nvidia's first earnings since Jensen Huang stepped down, the global Microsoft 365 outage, and Japan scrambling jets over Russian aircraft.
+One image that sums up the world's news of Tuesday 17 November 2026: a drawn newspaper front page with a dot-matrix world map and nine numbered stories — Ukraine's strike on the Crimea Bridge, tankers hitting mines in the Strait of Hormuz, Trump landing in Manila for the ASEAN summit, Nvidia's first earnings since Jensen Huang stepped down, the global Microsoft 365 outage, Japan scrambling jets over Russian aircraft, Western nations urging Israel to open Gaza crossings, 128 states debating a ban on lethal autonomous weapons in Geneva, and the EU charging Temu over illegal goods.
 
 The entry program (`main.py`, Python standard library only) copies the committed `entry.png` byte-for-byte to `/output/entry.png` and verifies its size and signature, so every run writes identical bytes. The poster itself was drawn programmatically with `draw.py` (Pillow) — real rendered text, no generated-image garbling.
 
