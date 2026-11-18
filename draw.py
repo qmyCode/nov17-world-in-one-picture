@@ -1,114 +1,348 @@
 #!/usr/bin/env python3
-"""Draw the news-image-20261117 entry: a newspaper front-page poster that
-sums up Tuesday 17 November 2026 in one 1024x1024 image.
+"""Draw the v4 entry poster: 'Tuesday 17 November 2026 - The Day in World News'.
+
+Top-10 format: 39 verified stories (12 illustrated mains + 27 one-liners),
+a dominant hero panel for the Kerch Bridge lead, a Day-in-Numbers strip,
+a Stories-by-Region tally, a numbered dot-matrix world map, and a
+per-region colour system shared by kicker chips, map pins and ALSO numbers.
+Deterministic: pure Pillow drawing, no randomness, no clock.
 
 Tooling only -- the shipped main.py just copies the committed entry.png.
 Run:  python3 draw.py   (writes entry.png next to this file)
 """
+import math
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "entry.png")
 
 W = H = 1024
-CREAM = (247, 241, 227)
-PAPER = (253, 250, 240)
-INK = (22, 20, 18)
-RED = (178, 34, 28)
-GREY = (90, 84, 74)
-WATER = (86, 138, 178)
-SKY = (216, 230, 240)
+PAPER = (250, 248, 243)
+INK = (18, 18, 20)
+GREY = (96, 96, 100)
+ACCENT = (146, 30, 30)
+RULE = (210, 205, 195)
 
-F_SERIF_B = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
-F_SANS_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-F_SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+FD = "/usr/share/fonts/truetype/dejavu/"
+SERIF = FD + "DejaVuSerif.ttf"
+SERIFB = FD + "DejaVuSerif-Bold.ttf"
+SANS = FD + "DejaVuSans.ttf"
+SANSB = FD + "DejaVuSans-Bold.ttf"
 
-_cache = {}
-
-
-def font(path, size):
-    key = (path, size)
-    if key not in _cache:
-        _cache[key] = ImageFont.truetype(path, size)
-    return _cache[key]
-
-
-def text_w(d, s, f):
-    return d.textlength(s, font=f)
+REGIONS = {
+    "EUROPE": (31, 78, 120),
+    "MIDEAST": (146, 96, 16),
+    "ASIA": (46, 107, 52),
+    "AFRICA": (176, 84, 18),
+    "AMERICAS": (110, 52, 148),
+    "OCEANIA": (0, 121, 107),
+    "GLOBAL": (84, 84, 84),
+}
+REGION_LABEL = {"MIDEAST": "MIDDLE EAST"}
 
 
-def wrap(d, s, f, max_w):
-    """Greedy word wrap to max_w pixels; returns list of lines."""
-    lines, cur = [], ""
-    for word in s.split():
-        trial = (cur + " " + word).strip()
-        if text_w(d, trial, f) <= max_w or not cur:
-            cur = trial
+def F(path, size):
+    return ImageFont.truetype(path, size)
+
+
+def wrap(draw, text, font, width):
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        t = (cur + " " + w).strip()
+        if draw.textlength(t, font=font) <= width or not cur:
+            cur = t
         else:
             lines.append(cur)
-            cur = word
+            cur = w
     if cur:
         lines.append(cur)
     return lines
 
 
-def fit_block(d, s, path, max_size, min_size, max_w, max_h, lh_ratio):
-    """Largest font size whose wrapped block fits max_w x max_h.
-    Returns (font, lines, line_height)."""
-    size = max_size
-    while size > min_size:
-        f = font(path, size)
-        lines = wrap(d, s, f, max_w)
-        lh = int(size * lh_ratio)
-        if len(lines) * lh <= max_h:
-            return f, lines, lh
-        size -= 1
-    f = font(path, min_size)
-    return f, wrap(d, s, f, max_w), int(min_size * lh_ratio)
-
-
-def draw_lines(d, lines, x, y, f, lh, fill=INK):
+def draw_lines(draw, xy, lines, font, fill, lh):
+    x, y = xy
     for ln in lines:
-        d.text((x, y), ln, font=f, fill=fill)
+        draw.text((x, y), ln, font=font, fill=fill)
         y += lh
     return y
 
 
-def centered(d, s, cx, y, f, fill=INK):
-    d.text((cx - text_w(d, s, f) / 2, y), s, font=f, fill=fill)
+def centered(draw, y, text, font, fill):
+    draw.text(((W - draw.textlength(text, font=font)) / 2, y), text, font=font, fill=fill)
 
 
-def tracked(d, s, cx, y, f, tracking, fill=INK):
-    """Draw text centered with extra letter tracking."""
-    widths = [text_w(d, ch, f) for ch in s]
-    total = sum(widths) + tracking * (len(s) - 1)
+def tracked(draw, y, text, font, fill, spacing=6, cx=W / 2):
+    widths = [draw.textlength(c, font=font) for c in text]
+    total = sum(widths) + spacing * (len(text) - 1)
     x = cx - total / 2
-    for ch, w in zip(s, widths):
-        d.text((x, y), ch, font=f, fill=fill)
-        x += w + tracking
+    for c, w in zip(text, widths):
+        draw.text((x, y), c, font=font, fill=fill)
+        x += w + spacing
+    return total
 
 
-def tag_chip(d, x, y, label, color):
-    f = font(F_SANS_B, 16)
-    w = int(text_w(d, label, f)) + 18
-    d.rectangle([x, y, x + w, y + 24], fill=color)
-    d.text((x + 9, y + 3), label, font=f, fill=(255, 255, 255))
-    return w
+def fit_font(draw, text, path, size, max_w, min_size=8):
+    while size > min_size and draw.textlength(text, font=F(path, size)) > max_w:
+        size -= 1
+    return F(path, size)
 
 
-# ---------------------------------------------------------------- masthead
-def masthead(d):
-    cx = W // 2
-    tracked(d, "THE WORLD IN ONE PICTURE", cx, 20, font(F_SANS_B, 20), 6, INK)
-    d.line([70, 50, W - 70, 50], fill=INK, width=2)
-    centered(d, "TUESDAY", cx, 56, font(F_SERIF_B, 50))
-    centered(d, "17 NOVEMBER 2026", cx, 108, font(F_SERIF_B, 33), RED)
-    d.rectangle([26, 146, W - 26, 151], fill=INK)
+def badge(draw, cx, cy, num, colour, r=9):
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=colour)
+    t = str(num)
+    f = F(SANSB, 10 if num < 10 else 9)
+    draw.text((cx - draw.textlength(t, font=f) / 2, cy - 6), t, font=f, fill=(255, 255, 255))
 
 
-# ---------------------------------------------------------------- world map
-# Dot-matrix world map: 100 x 22 cells, equirectangular.
+def chip(draw, x, y, region, topic, h=18):
+    label = REGION_LABEL.get(region, region) + " · " + topic
+    f = F(SANSB, 10)
+    w = draw.textlength(label, font=f) + 14
+    draw.rounded_rectangle([x, y, x + w, y + h], radius=4, fill=REGIONS[region])
+    draw.text((x + 7, y + h // 2 - 6), label, font=f, fill=(255, 255, 255))
+    return x + w
+
+
+# ---------------------------------------------------------------- icons
+def icon_ship(d, x, y, s):
+    d.polygon([(x + 6, y + s - 14), (x + s - 4, y + s - 14), (x + s - 12, y + s - 5),
+               (x + 12, y + s - 5)], fill=(70, 90, 110))
+    d.rectangle([x + 14, y + s - 24, x + 30, y + s - 14], fill=(178, 60, 40))
+    d.rectangle([x + 32, y + s - 24, x + 48, y + s - 14], fill=(52, 110, 70))
+    d.rectangle([x + s - 22, y + 12, x + s - 12, y + s - 24], fill=(90, 90, 90))
+    d.arc([x + 4, y + s - 6, x + s - 4, y + s + 4], 0, 180, fill=(70, 130, 180), width=2)
+
+
+def icon_plane(d, x, y, s):
+    d.ellipse([x + 6, y + 6, x + 26, y + 26], outline=(200, 40, 40), width=3)
+    d.ellipse([x + s - 26, y + 6, x + s - 6, y + 26], outline=(40, 90, 180), width=3)
+    d.polygon([(x + 8, y + s - 12), (x + s - 10, y + s - 22), (x + s - 4, y + s - 10),
+               (x + 16, y + s - 4)], fill=(60, 60, 66))
+    d.polygon([(x + s // 2 - 4, y + s - 20), (x + s // 2 + 8, y + s - 34),
+               (x + s // 2 + 14, y + s - 18)], fill=(90, 90, 96))
+
+
+def icon_chip(d, x, y, s):
+    d.rounded_rectangle([x + 12, y + 12, x + s - 12, y + s - 12], radius=4,
+                        outline=(30, 110, 60), width=3)
+    for i in range(4):
+        px = x + 16 + i * (s - 36) / 3
+        d.line([px, y + 4, px, y + 12], fill=(30, 110, 60), width=2)
+        d.line([px, y + s - 12, px, y + s - 4], fill=(30, 110, 60), width=2)
+    d.rectangle([x + s // 2 - 7, y + s // 2 - 7, x + s // 2 + 7, y + s // 2 + 7],
+                fill=(30, 110, 60))
+    d.text((x + s // 2 - 8, y + s // 2 - 19), "AI", font=F(SANSB, 11), fill=(30, 110, 60))
+
+
+def icon_cloud(d, x, y, s):
+    d.ellipse([x + 8, y + 16, x + 34, y + 38], fill=(120, 130, 145))
+    d.ellipse([x + 24, y + 8, x + 54, y + 38], fill=(120, 130, 145))
+    d.rectangle([x + 14, y + 28, x + 50, y + 40], fill=(120, 130, 145))
+    d.line([x + s - 14, y + 6, x + s - 22, y + 22], fill=(200, 40, 40), width=4)
+    d.line([x + s - 22, y + 6, x + s - 14, y + 22], fill=(200, 40, 40), width=4)
+
+
+def icon_jet(d, x, y, s):
+    d.polygon([(x + 4, y + s - 16), (x + s - 14, y + 10), (x + s - 6, y + 12),
+               (x + s - 12, y + s - 8), (x + 22, y + s - 6)], fill=(80, 88, 100))
+    d.polygon([(x + 16, y + s - 14), (x + 30, y + s - 28), (x + 36, y + s - 12)],
+              fill=(60, 66, 78))
+    d.ellipse([x + s - 20, y + 12, x + s - 12, y + 20], fill=(240, 244, 248))
+    d.line([x + 8, y + 20, x + 20, y + 30], fill=(190, 60, 50), width=2)
+    d.line([x + 6, y + 28, x + 16, y + 38], fill=(190, 60, 50), width=2)
+
+
+def icon_truck(d, x, y, s):
+    d.rectangle([x + 6, y + 16, x + s - 20, y + s - 16], outline=(120, 84, 30), width=3)
+    d.polygon([(x + s - 20, y + 24), (x + s - 8, y + 34), (x + s - 8, y + s - 16),
+               (x + s - 20, y + s - 16)], outline=(120, 84, 30), width=3)
+    d.rectangle([x + 13, y + 9, x + 25, y + 16], fill=(178, 60, 40))
+    for cx in (x + 18, x + s - 16):
+        d.ellipse([cx - 6, y + s - 16, cx + 6, y + s - 4], fill=(40, 40, 44))
+    d.line([x + 12, y + 26, x + s - 26, y + 26], fill=(178, 60, 40), width=2)
+    d.line([x + 12, y + 32, x + s - 26, y + 32], fill=(178, 60, 40), width=2)
+
+
+def icon_robot(d, x, y, s):
+    d.rounded_rectangle([x + 14, y + 14, x + s - 14, y + s - 14], radius=6,
+                        outline=(90, 60, 130), width=3)
+    d.ellipse([x + 22, y + 24, x + 30, y + 32], fill=(200, 40, 40))
+    d.ellipse([x + s - 30, y + 24, x + s - 22, y + 32], fill=(200, 40, 40))
+    d.line([x + 24, y + s - 22, x + s - 24, y + s - 22], fill=(90, 60, 130), width=3)
+    d.line([x + s // 2, y + 14, x + s // 2, y + 6], fill=(90, 60, 130), width=3)
+    d.ellipse([x + s // 2 - 3, y + 3, x + s // 2 + 3, y + 9], fill=(200, 40, 40))
+
+
+def icon_parcel(d, x, y, s):
+    d.rectangle([x + 10, y + 14, x + s - 10, y + s - 8], outline=(160, 90, 30), width=3)
+    d.line([x + 10, y + 26, x + s - 10, y + 26], fill=(160, 90, 30), width=2)
+    d.line([x + s // 2, y + 14, x + s // 2, y + 26], fill=(160, 90, 30), width=2)
+    d.line([x + s - 24, y + 4, x + s - 10, y + 18], fill=(200, 40, 40), width=4)
+    d.line([x + s - 10, y + 4, x + s - 24, y + 18], fill=(200, 40, 40), width=4)
+
+
+def icon_leaf(d, x, y, s):
+    d.polygon([(x + 12, y + s - 10), (x + 16, y + 18), (x + 30, y + 8),
+               (x + s - 10, y + 10), (x + s - 14, y + 30), (x + 30, y + s - 14)],
+              fill=(52, 130, 66))
+    d.line([x + 14, y + s - 8, x + s - 14, y + 14], fill=(30, 90, 44), width=2)
+
+
+def icon_virus(d, x, y, s):
+    cx, cy, r = x + s // 2, y + s // 2, 13
+    for a in range(0, 360, 45):
+        rad = math.radians(a)
+        x2, y2 = cx + 19 * math.cos(rad), cy + 19 * math.sin(rad)
+        d.line([cx, cy, x2, y2], fill=(178, 52, 40), width=3)
+        d.ellipse([x2 - 3, y2 - 3, x2 + 3, y2 + 3], fill=(178, 52, 40))
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(200, 84, 60))
+    d.ellipse([cx - 5, cy - 4, cx - 1, cy], fill=(240, 190, 170))
+    d.ellipse([cx + 3, cy + 4, cx + 7, cy + 8], fill=(240, 190, 170))
+
+
+def icon_trophy(d, x, y, s):
+    d.polygon([(x + 16, y + 8), (x + s - 16, y + 8), (x + s - 20, y + 30),
+               (x + s // 2 + 5, y + 36), (x + s // 2 - 5, y + 36), (x + 20, y + 30)],
+              fill=(198, 152, 40))
+    d.arc([x + 4, y + 10, x + 20, y + 28], 90, 270, fill=(198, 152, 40), width=3)
+    d.arc([x + s - 20, y + 10, x + s - 4, y + 28], 270, 90, fill=(198, 152, 40), width=3)
+    d.rectangle([x + s // 2 - 3, y + 36, x + s // 2 + 3, y + 44], fill=(150, 112, 30))
+    d.rectangle([x + s // 2 - 11, y + 44, x + s // 2 + 11, y + 50], fill=(150, 112, 30))
+    d.ellipse([x + s // 2 - 5, y + 15, x + s // 2 + 5, y + 25], fill=(250, 250, 250))
+
+
+ICONS = {2: icon_ship, 3: icon_plane, 4: icon_chip, 5: icon_cloud, 6: icon_jet,
+         7: icon_truck, 8: icon_robot, 9: icon_parcel, 10: icon_leaf,
+         11: icon_virus, 12: icon_trophy}
+
+
+def bridge_art(d, x0, y0, x1, y1):
+    """Kerch Bridge scene for the hero panel: strait, towers, collapsed span."""
+    w, h = x1 - x0, y1 - y0
+    d.rectangle([x0, y0, x1, y0 + h * 0.52], fill=(206, 224, 236))
+    d.rectangle([x0, y0 + h * 0.52, x1, y1], fill=(88, 138, 178))
+    for i in range(6):
+        yy = y0 + h * (0.60 + i * 0.07)
+        d.line([x0 + (i % 3) * 46, yy, x0 + (i % 3) * 46 + 74, yy],
+               fill=(140, 180, 205), width=2)
+    deck = y0 + h * 0.50
+    for fx in (0.16, 0.84):
+        tx = x0 + w * fx
+        d.rectangle([tx - 5, y0 + h * 0.10, tx + 5, deck], fill=(70, 74, 82))
+        d.polygon([(tx - 34, deck), (tx, y0 + h * 0.10), (tx + 34, deck)],
+                  outline=(70, 74, 82), width=2)
+    d.rectangle([x0, deck - 4, x0 + w * 0.40, deck + 3], fill=(52, 56, 64))
+    d.rectangle([x0 + w * 0.60, deck - 4, x1, deck + 3], fill=(52, 56, 64))
+    d.polygon([(x0 + w * 0.40, deck - 3), (x0 + w * 0.52, deck + h * 0.20),
+               (x0 + w * 0.60, deck - 3)], fill=(40, 44, 50))
+    for fx, col in ((0.10, (200, 60, 40)), (0.24, (240, 244, 248)), (0.72, (60, 110, 200))):
+        cx = x0 + w * fx
+        d.rectangle([cx - 11, deck - 13, cx + 11, deck - 4], fill=col)
+        d.rectangle([cx - 6, deck - 19, cx + 3, deck - 13], fill=(230, 232, 236))
+    gx, gy = x0 + w * 0.50, y0 + h * 0.16
+    for r, col in ((17, (120, 120, 124)), (12, (168, 96, 40)), (7, (226, 178, 60))):
+        d.ellipse([gx - r, gy - r, gx + r, gy + r], fill=col)
+    for dx, dy, r in ((-24, 8, 8), (22, 12, 9), (-6, -16, 7), (14, -12, 6)):
+        d.ellipse([gx + dx - r, gy + dy - r, gx + dx + r, gy + dy + r], fill=(110, 110, 114))
+
+
+# ---------------------------------------------------------------- page
+img = Image.new("RGB", (W, H), PAPER)
+d = ImageDraw.Draw(img)
+
+# Masthead
+d.rectangle([26, 18, 998, 21], fill=INK)
+d.line([26, 26, 998, 26], fill=INK, width=1)
+tracked(d, 32, "THE DAY IN WORLD NEWS", F(SERIFB, 27), INK, spacing=7)
+tracked(d, 68, "39 STORIES · 6 CONTINENTS · ONE DAY", F(SANSB, 14), ACCENT, spacing=4)
+centered(d, 90, "Tuesday 17 November 2026", F(SERIFB, 56), INK)
+d.line([26, 156, 998, 156], fill=INK, width=2)
+
+# Hero panel: story 1, Kerch Bridge (EUROPE)
+d.rectangle([26, 164, 628, 386], outline=INK, width=2)
+badge(d, 48, 182, 1, REGIONS["EUROPE"], r=10)
+chip(d, 68, 172, "EUROPE", "WAR")
+_ls = "LEAD STORY"
+d.text((614 - d.textlength(_ls, font=F(SANSB, 10)), 176), _ls, font=F(SANSB, 10), fill=GREY)
+bridge_art(d, 40, 200, 614, 294)
+_hl = wrap(d, "Ukraine strike collapses part of the Kerch Bridge", F(SERIFB, 28), 574)
+draw_lines(d, (40, 300), _hl, F(SERIFB, 28), INK, 33)
+d.text((40, 366), "Road-and-rail link to Crimea severed; Moscow blames Kyiv, Kyiv silent.",
+       font=F(SANS, 12), fill=(52, 52, 56))
+
+# Stacked mains 2 and 3
+STACK = [
+    (2, "MIDEAST", "ENERGY", "IRGC says mines hit two tankers in Hormuz",
+     "A third US carrier arrives in the region as shipping stays paralysed."),
+    (3, "ASIA", "SUMMIT", "Trump lands in Manila for ASEAN summit",
+     "Signs a Thailand trade statement at the summit."),
+]
+for i, (num, region, topic, head, deck) in enumerate(STACK):
+    px, py = 638, 164 + i * 114
+    d.rectangle([px, py, 998, py + 106], outline=INK, width=1)
+    badge(d, px + 20, py + 19, num, REGIONS[region])
+    chip(d, px + 36, py + 10, region, topic)
+    ICONS[num](d, px + 10, py + 38, 60)
+    hf = F(SERIFB, 15)
+    draw_lines(d, (px + 80, py + 36), wrap(d, head, hf, 268), hf, INK, 18)
+    df = F(SANS, 11)
+    draw_lines(d, (px + 80, py + 74), wrap(d, deck, df, 268), df, (52, 52, 56), 13)
+
+# Grid mains 4-12
+GRID = [
+    (4, "AMERICAS", "BUSINESS", "Nvidia's first earnings since Huang stepped down",
+     "Chip giant reports amid AI-spending scrutiny.", icon_chip),
+    (5, "GLOBAL", "TECH", "Microsoft 365 outage hits 70+ countries",
+     "Worldwide failure restored the same day.", icon_cloud),
+    (6, "ASIA", "DEFENCE", "Japan scrambles jets over suspected Russian aircraft",
+     "Interception near Japan's northern airspace.", icon_jet),
+    (7, "MIDEAST", "AID", "Four nations urge Israel to open Gaza crossings",
+     "Aid situation called 'catastrophic'.", icon_truck),
+    (8, "EUROPE", "DIPLOMACY", "128 states debate killer robots in Geneva",
+     "Talks weigh a binding treaty on AI weapons.", icon_robot),
+    (9, "EUROPE", "TRADE", "EU charges Temu over illegal goods",
+     "Brussels: platform failed on unsafe products.", icon_parcel),
+    (10, "GLOBAL", "CLIMATE", "COP31 draft calls time on fossil fuels",
+     "$120bn a year in adaptation aid by 2035.", icon_leaf),
+    (11, "AFRICA", "HEALTH", "Ebola in DR Congo 'still not under control'",
+     "Africa CDC: 11,200 cases, 5,500 deaths.", icon_virus),
+    (12, "ASIA", "SPORT", "India win U19 Asia Cup in last-ball thriller",
+     "Ulva's 49* seals a one-wicket win.", icon_trophy),
+]
+for i, (num, region, topic, head, deck, icon) in enumerate(GRID):
+    gx, gy = 26 + (i % 3) * 328, 394 + (i // 3) * 86
+    d.rectangle([gx, gy, gx + 316, gy + 80], outline=RULE, width=1)
+    badge(d, gx + 19, gy + 16, num, REGIONS[region])
+    chip(d, gx + 34, gy + 7, region, topic, h=17)
+    icon(d, gx + 8, gy + 30, 46)
+    hf = F(SERIFB, 14)
+    draw_lines(d, (gx + 62, gy + 28), wrap(d, head, hf, 246), hf, INK, 16)
+    d.text((gx + 62, gy + 62), deck, font=fit_font(d, deck, SANS, 10, 246), fill=(52, 52, 56))
+
+
+# ------------------------------------------------------- Day in Numbers
+d.line([26, 654, 998, 654], fill=INK, width=2)
+d.text((26, 660), "THE DAY IN NUMBERS", font=F(SANSB, 13), fill=INK)
+_dn_note = "Five figures that frame the day"
+d.text((998 - d.textlength(_dn_note, font=F(SANS, 10)), 662), _dn_note,
+       font=F(SANS, 10), fill=GREY)
+d.line([26, 680, 998, 680], fill=RULE, width=1)
+NUMBERS = [
+    ("11,200", "Ebola cases counted in DR Congo — Africa CDC"),
+    ("5,700+", "measles infections in the US this year — Nature"),
+    ("146,000", "people marched in France's pay strike — Interior Ministry"),
+    ("66–52", "Knesset vote electing speaker Matan Kahana"),
+    ("1", "light-day from Earth: Voyager 1's distance — NASA"),
+]
+for i, (big, label) in enumerate(NUMBERS):
+    nx = 26 + i * 194
+    d.text((nx, 686), big, font=F(SERIFB, 30), fill=ACCENT)
+    draw_lines(d, (nx, 720), wrap(d, label, F(SANS, 10), 186), F(SANS, 10), (52, 52, 56), 12)
+
+# ------------------------------------------------------------- world map
+# Dot-matrix world map: 100 x 22 cells, equirectangular (reused from v3).
 # '#' = land, '.' = ocean. Rows run lat ~+77 (top) to ~-54 (bottom),
 # columns run lon -180 (left) to +180 (right).
 MAP_COLS = 100
@@ -137,385 +371,135 @@ MAP_ROWS = [
     ".........." ".........." ".........." "#........." ".........." ".........." ".........." ".........." ".........." "..........",
 ]
 
-# Story pins: story number -> (col, row) on the map grid.
+# Pins: story number -> (col, row, region). Stories 5 and 39 have no
+# location (global outage / deep space) and appear as chips below the map.
 PINS = {
-    1: (59, 6),    # Crimea / Black Sea
-    2: (66, 9),    # Strait of Hormuz
-    3: (84, 10),   # Manila
-    4: (16, 7),    # California (Nvidia)
-    5: (12, 4),    # Redmond (Microsoft), offset NW of pin 4
-    6: (89, 7),    # Japan
-    7: (60, 8),    # Gaza / Eastern Mediterranean (nudged E to clear pin 10)
-    8: (53, 6),    # Geneva
-    9: (49, 4),    # Brussels / EU
-    10: (56, 7),   # Antalya, Türkiye (COP31)
-    11: (57, 13),  # DR Congo (Ebola outbreak)
-    12: (64, 11),  # Oman / SE Arabia (U19 Asia Cup final)
+    1: (63, 5, "EUROPE"), 2: (65, 9, "MIDEAST"), 3: (84, 10, "ASIA"),
+    4: (16, 7, "AMERICAS"), 6: (88, 7, "ASIA"), 7: (59, 8, "MIDEAST"),
+    8: (52, 6, "EUROPE"), 9: (51, 3, "EUROPE"), 10: (58, 7, "GLOBAL"),
+    11: (56, 13, "AFRICA"), 12: (70, 10, "ASIA"), 13: (59, 3, "EUROPE"),
+    14: (58, 5, "EUROPE"), 15: (55, 5, "EUROPE"), 16: (53, 4, "EUROPE"),
+    17: (49, 3, "EUROPE"), 18: (50, 5, "EUROPE"), 19: (61, 7, "MIDEAST"),
+    20: (62, 11, "MIDEAST"), 21: (60, 9, "MIDEAST"), 22: (67, 10, "MIDEAST"),
+    23: (80, 5, "ASIA"), 24: (75, 9, "ASIA"), 25: (79, 13, "ASIA"),
+    26: (71, 8, "ASIA"), 27: (70, 7, "ASIA"), 28: (86, 11, "ASIA"),
+    29: (46, 11, "AFRICA"), 30: (61, 12, "AFRICA"), 31: (52, 11, "AFRICA"),
+    32: (28, 7, "AMERICAS"), 33: (31, 5, "AMERICAS"), 34: (30, 10, "AMERICAS"),
+    35: (29, 14, "AMERICAS"), 36: (36, 15, "AMERICAS"), 37: (34, 17, "AMERICAS"),
+    38: (90, 19, "OCEANIA"),
 }
 
+d.rectangle([26, 750, 498, 968], outline=INK, width=1)
+d.text((38, 758), "WHERE IT HAPPENED", font=F(SANSB, 12), fill=INK)
+d.rectangle([34, 772, 490, 876], fill=(238, 241, 238))
+OX, OY, CELL = 36, 774, 4.5
+LAND = (43, 52, 63)
+for r, row in enumerate(MAP_ROWS):
+    row = row.ljust(MAP_COLS, ".")[:MAP_COLS]
+    for c, ch in enumerate(row):
+        if ch == "#":
+            cx, cy = OX + (c + 0.5) * CELL, OY + (r + 0.5) * CELL
+            d.ellipse([cx - 1.6, cy - 1.6, cx + 1.6, cy + 1.6], fill=LAND)
+for num in sorted(PINS):
+    c, r, region = PINS[num]
+    cx, cy = OX + (c + 0.5) * CELL, OY + (r + 0.5) * CELL
+    d.ellipse([cx - 8, cy - 8, cx + 8, cy + 8], fill=REGIONS[region],
+              outline=(255, 255, 255), width=2)
+    t = str(num)
+    pf = F(SANSB, 8)
+    d.text((cx - d.textlength(t, font=pf) / 2, cy - 5), t, font=pf, fill=(255, 255, 255))
 
-def world_map(d, box):
-    """Draw the dot-matrix map inside box, with numbered red pins."""
-    x0, y0, x1, y1 = box
-    d.rectangle([x0, y0, x1, y1], fill=(238, 241, 238), outline=INK, width=2)
-    grid_w = (x1 - x0) - 36
-    grid_h = (y1 - y0) - 52
-    px = grid_w / MAP_COLS
-    py = grid_h / len(MAP_ROWS)
-    ox = x0 + 18
-    oy = y0 + 12
-    land = (43, 52, 63)
-    for r, row in enumerate(MAP_ROWS):
-        row = row.ljust(MAP_COLS, ".")[:MAP_COLS]
-        cy = oy + (r + 0.5) * py
-        for c, ch in enumerate(row):
-            if ch == "#":
-                cx = ox + (c + 0.5) * px
-                d.ellipse([cx - 3.0, cy - 3.0, cx + 3.0, cy + 3.0], fill=land)
-    pf = font(F_SANS_B, 14)
-    for num, (c, r) in PINS.items():
-        cx = ox + (c + 0.5) * px
-        cy = oy + (r + 0.5) * py
-        d.ellipse([cx - 11, cy - 11, cx + 11, cy + 11], fill=RED, outline=(255, 255, 255), width=2)
-        s = str(num)
-        d.text((cx - text_w(d, s, pf) / 2, cy - 8), s, font=pf, fill=(255, 255, 255))
-    cap = "TWELVE STORIES \u00b7 FIVE CONTINENTS \u00b7 ONE DAY"
-    centered(d, cap, (x0 + x1) // 2, y1 - 34, font(F_SANS_B, 19), INK)
+# Global stories as chips under the map
+gy = 890
+d.text((38, gy - 5), "WORLDWIDE / IN SPACE:", font=F(SANSB, 9), fill=GREY)
+gx = 38 + d.textlength("WORLDWIDE / IN SPACE:", font=F(SANSB, 9)) + 10
+for num, label in ((5, "Microsoft 365 outage"), (39, "Voyager 1")):
+    badge(d, gx + 8, gy + 3, num, REGIONS["GLOBAL"], r=8)
+    d.text((gx + 20, gy - 5), label, font=F(SANS, 9), fill=(52, 52, 56))
+    gx += 20 + d.textlength(label, font=F(SANS, 9)) + 18
 
+# Legend: the per-region colour system
+lx = 38
+for region in ("EUROPE", "MIDEAST", "ASIA", "AFRICA", "AMERICAS", "OCEANIA", "GLOBAL"):
+    label = REGION_LABEL.get(region, region)
+    d.ellipse([lx, 906, lx + 8, 914], fill=REGIONS[region])
+    d.text((lx + 12, 905), label, font=F(SANSB, 8), fill=(52, 52, 56))
+    lx += 12 + d.textlength(label, font=F(SANSB, 8)) + 10
 
-# ---------------------------------------------------------------- hero art
-def bridge_art(d, x, y, w, h):
-    """Long bridge over water; the middle span is broken and tilted down."""
-    d.rectangle([x, y, x + w, y + h], fill=SKY)
-    wy = y + h - 34
-    d.rectangle([x, wy, x + w, y + h], fill=WATER)
-    for i in range(7):  # wave ticks
-        wx = x + 30 + i * (w - 60) // 6
-        d.arc([wx, wy + 8, wx + 34, wy + 24], 180, 360, fill=(230, 242, 250), width=2)
-    deck_y = y + 44
-    col = (52, 56, 62)
-    # piers
-    for px in (x + 60, x + w - 110):
-        d.rectangle([px, deck_y, px + 16, wy + 4], fill=col)
-    # left deck + cables
-    gap_l = x + int(w * 0.44)
-    gap_r = x + int(w * 0.63)
-    d.rectangle([x + 8, deck_y, gap_l, deck_y + 9], fill=col)
-    d.rectangle([gap_r, deck_y, x + w - 8, deck_y + 9], fill=col)
-    for tx in (x + 60, x + w - 110):
-        d.line([tx + 8, deck_y - 30, tx + 8, deck_y], fill=col, width=4)
-        d.line([tx + 8, deck_y - 30, x + 14, deck_y], fill=col, width=2)
-        d.line([tx + 8, deck_y - 30, (gap_l if tx < x + w / 2 else gap_r), deck_y], fill=col, width=2)
-    # broken middle span, tilted into the water
-    d.polygon([(gap_l, deck_y + 2), (gap_r - 6, deck_y + 34),
-               (gap_r - 6, deck_y + 43), (gap_l, deck_y + 11)], fill=col)
-    # jagged crack edges
-    d.line([gap_l, deck_y, gap_l + 10, deck_y + 12, gap_l + 2, deck_y + 20], fill=RED, width=3)
-    d.line([gap_r, deck_y, gap_r - 12, deck_y + 10, gap_r - 4, deck_y + 18], fill=RED, width=3)
-    # splash where the span hits the water
-    for sx in (-14, 0, 14):
-        d.line([gap_r - 26 + sx, wy + 2, gap_r - 32 + sx, wy - 12], fill=(240, 248, 252), width=3)
+# Stories-by-region tally (auditable breadth)
+d.text((38, 924), "STORIES BY REGION", font=F(SANSB, 10), fill=INK)
+TALLY = [("EUROPE", 9), ("ASIA", 9), ("AMERICAS", 7), ("MIDDLE EAST", 6),
+         ("AFRICA", 4), ("GLOBAL", 3), ("OCEANIA", 1)]
+TALLY_KEY = {"EUROPE": "EUROPE", "ASIA": "ASIA", "AMERICAS": "AMERICAS",
+             "MIDDLE EAST": "MIDEAST", "AFRICA": "AFRICA", "GLOBAL": "GLOBAL",
+             "OCEANIA": "OCEANIA"}
+for i, (label, count) in enumerate(TALLY):
+    tx = 38 + (i % 4) * 116
+    ty = 940 + (i // 4) * 14
+    d.text((tx, ty), label, font=F(SANS, 8), fill=(52, 52, 56))
+    bw = count * 4.5
+    d.rectangle([tx + 58, ty + 1, tx + 58 + bw, ty + 8], fill=REGIONS[TALLY_KEY[label]])
+    d.text((tx + 62 + bw, ty), str(count), font=F(SANSB, 8), fill=INK)
 
 
-# ---------------------------------------------------------------- icons
-def icon_tanker(d, x, y, s):
-    """Tanker hull + waves + a spiked mine."""
-    hull = [(x, y + s * 0.45), (x + s, y + s * 0.45), (x + s * 0.86, y + s * 0.68),
-            (x + s * 0.12, y + s * 0.68)]
-    d.polygon(hull, fill=(52, 56, 62))
-    d.rectangle([x + s * 0.10, y + s * 0.34, x + s * 0.52, y + s * 0.45], fill=(120, 128, 138))
-    d.rectangle([x + s * 0.58, y + s * 0.26, x + s * 0.70, y + s * 0.45], fill=(52, 56, 62))
-    for i in range(3):
-        wx = x + i * s * 0.34
-        d.arc([wx, y + s * 0.74, wx + s * 0.3, y + s * 0.92], 180, 360, fill=WATER, width=3)
-    mx, my, r = x + s * 0.84, y + s * 0.16, s * 0.11
-    for a in range(0, 360, 45):
-        import math
-        dx, dy = math.cos(math.radians(a)), math.sin(math.radians(a))
-        d.line([mx + dx * r * 0.6, my + dy * r * 0.6, mx + dx * r * 1.5, my + dy * r * 1.5],
-               fill=INK, width=2)
-    d.ellipse([mx - r, my - r, mx + r, my + r], fill=INK)
-
-
-def icon_flags(d, x, y, s):
-    """Three flags on poles + a small jet overhead."""
-    cols = [(38, 84, 150), (214, 178, 60), (178, 34, 28)]
-    for i, c in enumerate(cols):
-        px = x + s * (0.12 + i * 0.30)
-        d.line([px, y + s * 0.36, px, y + s * 0.97], fill=INK, width=3)
-        d.rectangle([px, y + s * 0.36, px + s * 0.24, y + s * 0.58], fill=c)
-    d.polygon([(x + s * 0.18, y + s * 0.06), (x + s * 0.44, y + s * 0.13),
-               (x + s * 0.82, y + s * 0.10), (x + s * 0.56, y + s * 0.18),
-               (x + s * 0.62, y + s * 0.23), (x + s * 0.50, y + s * 0.21),
-               (x + s * 0.24, y + s * 0.14)], fill=(52, 56, 62))
-
-
-def icon_chip(d, x, y, s):
-    body = s * 0.52
-    bx, by = x + (s - body) / 2, y + (s - body) / 2
-    for i in range(4):  # pins
-        off = body * (0.18 + i * 0.21)
-        d.line([bx + off, y + s * 0.06, bx + off, by], fill=INK, width=3)
-        d.line([bx + off, by + body, bx + off, y + s * 0.94], fill=INK, width=3)
-        d.line([x + s * 0.06, by + off, bx, by + off], fill=INK, width=3)
-        d.line([bx + body, by + off, x + s * 0.94, by + off], fill=INK, width=3)
-    d.rectangle([bx, by, bx + body, by + body], outline=INK, width=4)
-    d.rectangle([bx + body * 0.28, by + body * 0.28, bx + body * 0.72, by + body * 0.72],
-                outline=RED, width=3)
-
-
-def icon_cloud(d, x, y, s):
-    """Cloud with a jagged crack and a down arrow."""
-    cy = y + s * 0.42
-    d.ellipse([x + s * 0.06, cy - s * 0.16, x + s * 0.44, cy + s * 0.20], fill=(168, 182, 196))
-    d.ellipse([x + s * 0.30, cy - s * 0.30, x + s * 0.72, cy + s * 0.20], fill=(168, 182, 196))
-    d.ellipse([x + s * 0.56, cy - s * 0.14, x + s * 0.92, cy + s * 0.20], fill=(168, 182, 196))
-    d.rectangle([x + s * 0.10, cy + s * 0.02, x + s * 0.88, cy + s * 0.20], fill=(168, 182, 196))
-    d.line([x + s * 0.50, cy - s * 0.26, x + s * 0.42, cy - s * 0.02,
-            x + s * 0.54, cy + s * 0.06, x + s * 0.46, cy + s * 0.20], fill=RED, width=3)
-    ax = x + s * 0.76
-    d.line([ax, y + s * 0.66, ax, y + s * 0.92], fill=RED, width=4)
-    d.polygon([(ax - s * 0.08, y + s * 0.84), (ax + s * 0.08, y + s * 0.84),
-               (ax, y + s * 0.97)], fill=RED)
-
-
-def icon_jet(d, x, y, s):
-    """Jet silhouette crossing a rising-sun disc."""
-    cx, cy, r = x + s * 0.5, y + s * 0.5, s * 0.34
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=RED)
-    d.polygon([(x + s * 0.06, y + s * 0.60), (x + s * 0.34, y + s * 0.50),
-               (x + s * 0.78, y + s * 0.30), (x + s * 0.95, y + s * 0.28),
-               (x + s * 0.82, y + s * 0.42), (x + s * 0.52, y + s * 0.52),
-               (x + s * 0.58, y + s * 0.64), (x + s * 0.44, y + s * 0.60),
-               (x + s * 0.16, y + s * 0.68), (x + s * 0.08, y + s * 0.76)],
-              fill=(30, 30, 34))
-
-
-def icon_bridge_mini(d, x, y, s):
-    """Tiny bridge with a broken middle span, over water."""
-    deck = y + s * 0.52
-    col = (52, 56, 62)
-    d.rectangle([x + s * 0.28, deck - s * 0.30, x + s * 0.34, deck], fill=col)
-    d.rectangle([x + s * 0.66, deck - s * 0.30, x + s * 0.72, deck], fill=col)
-    d.rectangle([x + s * 0.02, deck, x + s * 0.42, deck + s * 0.09], fill=col)
-    d.rectangle([x + s * 0.60, deck, x + s * 0.98, deck + s * 0.09], fill=col)
-    d.polygon([(x + s * 0.42, deck + s * 0.02), (x + s * 0.60, deck + s * 0.20),
-               (x + s * 0.60, deck + s * 0.28), (x + s * 0.42, deck + s * 0.10)], fill=col)
-    d.line([x + s * 0.31, deck - s * 0.30, x + s * 0.04, deck], fill=col, width=2)
-    d.line([x + s * 0.69, deck - s * 0.30, x + s * 0.96, deck], fill=col, width=2)
-    for i in range(3):
-        wx = x + s * (0.08 + i * 0.32)
-        d.arc([wx, y + s * 0.72, wx + s * 0.26, y + s * 0.92], 180, 360, fill=WATER, width=2)
-
-
-def icon_crossing(d, x, y, s):
-    """Aid truck with a cross, for the Gaza crossings story."""
-    col = (52, 56, 62)
-    d.rectangle([x + s * 0.04, y + s * 0.24, x + s * 0.62, y + s * 0.66], fill=col)
-    d.polygon([(x + s * 0.62, y + s * 0.40), (x + s * 0.82, y + s * 0.40),
-               (x + s * 0.94, y + s * 0.56), (x + s * 0.94, y + s * 0.66),
-               (x + s * 0.62, y + s * 0.66)], fill=col)
-    cx, cy = x + s * 0.33, y + s * 0.45
-    d.rectangle([cx - s * 0.045, cy - s * 0.13, cx + s * 0.045, cy + s * 0.13], fill=(255, 255, 255))
-    d.rectangle([cx - s * 0.13, cy - s * 0.045, cx + s * 0.13, cy + s * 0.045], fill=(255, 255, 255))
-    for wx in (x + s * 0.20, x + s * 0.78):
-        d.ellipse([wx - s * 0.09, y + s * 0.62, wx + s * 0.09, y + s * 0.80], fill=INK)
-    d.line([x + s * 0.02, y + s * 0.84, x + s * 0.98, y + s * 0.84], fill=INK, width=2)
-
-
-def icon_robot(d, x, y, s):
-    """Robot head with antenna, for the autonomous-weapons talks."""
-    col = (52, 56, 62)
-    cx = x + s * 0.5
-    d.line([cx, y + s * 0.06, cx, y + s * 0.22], fill=INK, width=3)
-    d.ellipse([cx - s * 0.06, y, cx + s * 0.06, y + s * 0.12], fill=RED)
-    d.rectangle([x + s * 0.16, y + s * 0.22, x + s * 0.84, y + s * 0.80], outline=col, width=4)
-    for ex in (x + s * 0.36, x + s * 0.64):
-        d.ellipse([ex - s * 0.07, y + s * 0.40, ex + s * 0.07, y + s * 0.54], fill=RED)
-    d.rectangle([x + s * 0.34, y + s * 0.64, x + s * 0.66, y + s * 0.70], fill=col)
-    d.rectangle([x + s * 0.06, y + s * 0.42, x + s * 0.16, y + s * 0.58], fill=col)
-    d.rectangle([x + s * 0.84, y + s * 0.42, x + s * 0.94, y + s * 0.58], fill=col)
-
-
-def icon_bag(d, x, y, s):
-    """Shopping bag with a slash, for the Temu / illegal goods story."""
-    col = (52, 56, 62)
-    d.polygon([(x + s * 0.16, y + s * 0.30), (x + s * 0.84, y + s * 0.30),
-               (x + s * 0.90, y + s * 0.92), (x + s * 0.10, y + s * 0.92)], outline=col, width=4)
-    d.arc([x + s * 0.32, y + s * 0.06, x + s * 0.68, y + s * 0.44], 180, 360, fill=col, width=4)
-    d.line([x + s * 0.24, y + s * 0.80, x + s * 0.76, y + s * 0.42], fill=RED, width=5)
-
-
-def icon_climate(d, x, y, s):
-    """Globe outline with a green leaf, for the COP31 draft deal."""
-    col = (52, 56, 62)
-    cx, cy, r = x + s * 0.46, y + s * 0.50, s * 0.40
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=4)
-    d.ellipse([cx - r * 0.45, cy - r, cx + r * 0.45, cy + r], outline=col, width=2)
-    d.line([cx - r, cy, cx + r, cy], fill=col, width=2)
-    leaf = (24, 130, 76)
-    lx, ly = x + s * 0.58, y + s * 0.58
-    d.polygon([(lx, ly + s * 0.30), (lx + s * 0.06, ly + s * 0.08),
-               (lx + s * 0.30, ly), (lx + s * 0.34, ly + s * 0.26),
-               (lx + s * 0.16, ly + s * 0.36)], fill=leaf)
-    d.line([lx + s * 0.03, ly + s * 0.32, lx + s * 0.28, ly + s * 0.05], fill=(255, 255, 255), width=2)
-
-
-def icon_virus(d, x, y, s):
-    """Spiked virus ball, for the DR Congo Ebola outbreak."""
-    import math
-    cx, cy, r = x + s * 0.5, y + s * 0.5, s * 0.26
-    for a in range(0, 360, 36):
-        dx, dy = math.cos(math.radians(a)), math.sin(math.radians(a))
-        x1, y1 = cx + dx * r, cy + dy * r
-        x2, y2 = cx + dx * r * 1.55, cy + dy * r * 1.55
-        d.line([x1, y1, x2, y2], fill=INK, width=3)
-        d.ellipse([x2 - 4, y2 - 4, x2 + 4, y2 + 4], fill=RED)
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(52, 56, 62))
-    for ox, oy in ((-0.10, -0.06), (0.11, 0.04), (0.0, 0.14)):
-        d.ellipse([cx + s * ox - 3, cy + s * oy - 3, cx + s * ox + 3, cy + s * oy + 3],
-                  fill=(255, 255, 255))
-
-
-def icon_ball(d, x, y, s):
-    """Red cricket ball with white seams, for the U19 Asia Cup final."""
-    cx, cy, r = x + s * 0.5, y + s * 0.5, s * 0.40
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=RED)
-    d.arc([cx - r * 1.35, cy - r, cx + r * 0.25, cy + r], 270, 90, fill=(255, 255, 255), width=3)
-    d.arc([cx - r * 0.25, cy - r, cx + r * 1.35, cy + r], 90, 270, fill=(255, 255, 255), width=3)
-    for t in (-0.45, 0.0, 0.45):
-        d.line([cx - r * 0.52, cy + r * t, cx - r * 0.34, cy + r * t], fill=(255, 255, 255), width=2)
-        d.line([cx + r * 0.34, cy + r * t, cx + r * 0.52, cy + r * t], fill=(255, 255, 255), width=2)
-
-
-# ---------------------------------------------------------------- panels
-def num_badge(d, x, y, num):
-    """Red disc with a white numeral, matching the map pins."""
-    r = 11
-    d.ellipse([x, y, x + 2 * r, y + 2 * r], fill=RED)
-    f = font(F_SANS_B, 15)
-    s = str(num)
-    d.text((x + r - text_w(d, s, f) / 2, y + r - 9), s, font=f, fill=(255, 255, 255))
-    return 2 * r
-
-
-def panel(d, box, num, tag, tag_color, headline, caption, icon=None, headline_max=23):
-    x0, y0, x1, y1 = box
-    d.rectangle([x0, y0, x1, y1], fill=PAPER, outline=INK, width=2)
-    pad = 9
-    bw = num_badge(d, x0 + pad, y0 + pad, num)
-    tag_f = font(F_SANS_B, 13)
-    label_w = int(text_w(d, tag, tag_f)) + 12
-    tx0 = x0 + pad + bw + 6
-    d.rectangle([tx0, y0 + pad, tx0 + label_w, y0 + pad + 22], fill=tag_color)
-    d.text((tx0 + 6, y0 + pad + 4), tag, font=tag_f, fill=(255, 255, 255))
-    if icon:
-        icon(d, x1 - pad - 36, y0 + pad - 3, 36)
-    tx = x0 + pad
-    tw = (x1 - x0) - 2 * pad
-    hy = y0 + pad + 31
-    hf, hlines, hlh = fit_block(d, headline, F_SANS_B, headline_max, 15, tw,
-                                (y1 - y0) - 82, 1.12)
-    hy = draw_lines(d, hlines, tx, hy, hf, hlh)
-    cy = hy + 3
-    cf, clines, clh = fit_block(d, caption, F_SANS, 15, 11, tw, (y1 - 6) - cy, 1.18)
-    draw_lines(d, clines, tx, cy, cf, clh)
-
-
-def hero_panel(d, box):
-    x0, y0, x1, y1 = box
-    d.rectangle([x0, y0, x1, y1], fill=PAPER, outline=INK, width=2)
-    bridge_art(d, x0 + 10, y0 + 10, (x1 - x0) - 20, 118)
-    tag_chip(d, x0 + 14, y0 + 14, "EUROPE", (31, 78, 120))
-    tx = x0 + 14
-    tw = (x1 - x0) - 28
-    hy = y0 + 140
-    hf, hlines, hlh = fit_block(
-        d, "UKRAINE BLOWS A GAP IN THE CRIMEA BRIDGE", F_SANS_B, 47, 38, tw, 120, 1.1)
-    hy = draw_lines(d, hlines, tx, hy, hf, hlh)
-    cap = ("Strike collapses a section of the Kerch Bridge; Zelenskyy hails an "
-           "'unprecedented operation' as Russian missiles hit Kyiv's bridges in reply.")
-    cf, clines, clh = fit_block(d, cap, F_SANS, 22, 19, tw, (y1 - 8) - (hy + 6), 1.25)
-    draw_lines(d, clines, tx, hy + 6, cf, clh)
-
-
-STORIES = [
-    (1, "EUROPE", (31, 78, 120),
-     "UKRAINE BLOWS A GAP IN THE CRIMEA BRIDGE",
-     "Strike collapses a section of the Kerch Bridge; Zelenskyy hails "
-     "an 'unprecedented operation'.", icon_bridge_mini),
-    (2, "MIDDLE EAST", (146, 96, 16),
-     "TANKERS HIT MINES IN HORMUZ, IRAN SAYS",
-     "Guards claim two tankers struck mines; a third US carrier "
-     "arrives.", icon_tanker),
-    (3, "ASIA", (46, 107, 52),
-     "TRUMP LANDS IN MANILA FOR ASEAN SUMMIT",
-     "Signs a trade statement with Thailand; tour ends in China with "
-     "Xi\u2013Putin talks.", icon_flags),
-    (4, "BUSINESS", (91, 58, 142),
-     "NVIDIA'S FIRST EARNINGS SINCE HUANG STEPPED DOWN",
-     "Founder signals he would return as the chip giant reports.",
-     icon_chip),
-    (5, "TECH", (140, 47, 57),
-     "MICROSOFT 365 OUTAGE DISRUPTS MILLIONS",
-     "Global failure hit users in 70+ countries; services restored.",
-     icon_cloud),
-    (6, "ASIA-PACIFIC", (23, 97, 107),
-     "JAPAN SCRAMBLES JETS OVER RUSSIAN AIRCRAFT",
-     "Tokyo protests after two suspected planes enter its airspace.",
-     icon_jet),
-    (7, "MIDDLE EAST", (146, 96, 16),
-     "WEST URGES ISRAEL TO OPEN GAZA CROSSINGS",
-     "UK, Australia, Canada and Italy call the aid situation "
-     "catastrophic.", icon_crossing),
-    (8, "WORLD", (70, 70, 70),
-     "128 STATES DEBATE A BAN ON KILLER ROBOTS",
-     "UN talks in Geneva weigh a treaty on lethal autonomous weapons.",
-     icon_robot),
-    (9, "EUROPE", (31, 78, 120),
-     "EU CHARGES TEMU OVER ILLEGAL GOODS",
-     "Brussels says the platform does too little to stop illegal sales.",
-     icon_bag),
-    (10, "CLIMATE", (24, 110, 76),
-     "COP31 DRAFT CALLS TIME ON FOSSIL FUELS",
-     "Antalya text urges a faster phase-out and $120bn a year for "
-     "climate adaptation by 2035.", icon_climate),
-    (11, "AFRICA", (168, 84, 16),
-     "CONGO EBOLA 'STILL NOT UNDER CONTROL'",
-     "Africa CDC counts 11,200 cases and 5,500 deaths in six months; "
-     "no vaccine for this strain.", icon_virus),
-    (12, "SPORT", (16, 104, 138),
-     "INDIA WIN U19 ASIA CUP IN LAST-BALL THRILLER",
-     "Ulva's unbeaten 49 steals a one-wicket win over Pakistan in "
-     "Oman; a ninth title for India.", icon_ball),
+# ------------------------------------------------------- ALSO ON TUESDAY
+ALSO = [
+    (13, "EUROPE", "Kyiv: Russian strikes hit two bridges"),
+    (14, "EUROPE", "Moldova shuts airspace over drone"),
+    (15, "EUROPE", "Prague: two trains collide, 46 hurt"),
+    (16, "EUROPE", "Deutsche Bank hit by leak reports"),
+    (17, "EUROPE", "UK sanctions 8 settler firms, Tzav 9"),
+    (18, "EUROPE", "France: 146,000 march in pay strike"),
+    (19, "MIDEAST", "Knesset elects Kahana speaker 66–52"),
+    (20, "MIDEAST", "Yemen: Houthis advance towards Aden"),
+    (21, "MIDEAST", "Gaza rains flood shelters, UN warns"),
+    (22, "MIDEAST", "Oman hosts Iran shipping talks"),
+    (23, "ASIA", "Mongolia: president to quit in graft row"),
+    (24, "ASIA", "Bangladesh garment protest tear-gassed"),
+    (25, "ASIA", "Singapore seeks trusted AI chip access"),
+    (26, "ASIA", "Imran Khan fears he won't survive jail"),
+    (27, "ASIA", "Sri Lanka all out for 98 in Rawalpindi"),
+    (28, "ASIA", "Australia, Philippines sign defence pact"),
+    (29, "AFRICA", "Guinea jails 224 in gold-mining purge"),
+    (30, "AFRICA", "Kenya: WFP aids 30,000 fleeing Moyale"),
+    (31, "AFRICA", "Nigeria inflation eases to 14.06%"),
+    (32, "AMERICAS", "US, Mexico, Bolivia lose measles status"),
+    (33, "AMERICAS", "JPMorgan blames bug for banking outage"),
+    (34, "AMERICAS", "Haiti: 33 register for presidential race"),
+    (35, "AMERICAS", "Peru: Pope Leo ends South America tour"),
+    (36, "AMERICAS", "Brazil 7–0 Singapore: Vinícius hat-trick"),
+    (37, "AMERICAS", "Paraguay ex-president sent to army jail"),
+    (38, "OCEANIA", "Curlew chicks hatch, first in 50 years"),
+    (39, "GLOBAL", "Voyager 1 reaches one light-day out"),
 ]
+d.rectangle([510, 750, 998, 968], outline=INK, width=1)
+d.text((522, 758), "ALSO ON TUESDAY", font=F(SERIFB, 15), fill=INK)
+_also_note = "27 more verified stories"
+d.text((986 - d.textlength(_also_note, font=F(SANS, 9)), 762), _also_note,
+       font=F(SANS, 9), fill=GREY)
+d.line([522, 782, 986, 782], fill=RULE, width=1)
+for i, (num, region, text) in enumerate(ALSO):
+    ax = 522 if i < 14 else 766
+    ay = 790 + (i % 14) * 12.5
+    nf = F(SANSB, 11)
+    d.text((ax, ay), str(num), font=nf, fill=REGIONS[region])
+    tf = fit_font(d, text, SANS, 11, 212)
+    d.text((ax + 20, ay), text, font=tf, fill=INK)
 
+# ---------------------------------------------------------------- footer
+d.line([26, 974, 998, 974], fill=INK, width=1)
+centered(d, 980,
+         "QUOTE OF THE DAY — “I have never stolen from my people or my state.” "
+         "— Mongolia's President Khurelsukh, announcing he will resign (AP)",
+         F(SERIF, 11), (52, 52, 56))
+centered(d, 996,
+         "Sources: Reuters · AP · AFP · BBC · Al Jazeera · The Guardian · UN News · "
+         "NASA · PAHO · Nature · Africa CDC · ESPNcricinfo · Defense News",
+         F(SANS, 9), GREY)
+centered(d, 1007,
+         "Disputed claims are attributed to their source. "
+         "All illustrations are original drawings, made for this front page.",
+         F(SANS, 9), GREY)
 
-def build():
-    img = Image.new("RGB", (W, H), CREAM)
-    d = ImageDraw.Draw(img)
-    d.rectangle([10, 10, W - 10, H - 10], outline=INK, width=3)
-    d.rectangle([17, 17, W - 17, H - 17], outline=INK, width=1)
-
-    masthead(d)
-    world_map(d, (26, 162, W - 26, 392))
-
-    gx0, gx1 = 26, W - 26
-    colw = (gx1 - gx0 - 20) // 3
-    rows_y = [(404, 534), (542, 672), (680, 810), (818, 948)]
-    for i, (num, tag, color, head, cap, icon) in enumerate(STORIES):
-        r, c = divmod(i, 3)
-        x0 = gx0 + c * (colw + 10)
-        box = (x0, rows_y[r][0], x0 + colw, rows_y[r][1])
-        panel(d, box, num, tag, color, head, cap, icon)
-
-    d.line([70, 958, W - 70, 958], fill=INK, width=2)
-    centered(d, "17 NOV 2026 \u00b7 THE DAY'S NEWS IN ONE IMAGE", W // 2, 966,
-             font(F_SANS_B, 18))
-    img.save(OUT, "PNG")
-    print("wrote", OUT, os.path.getsize(OUT), "bytes")
-
-
-if __name__ == "__main__":
-    build()
-
+img.save(OUT)
+print("wrote", OUT, os.path.getsize(OUT), "bytes")
