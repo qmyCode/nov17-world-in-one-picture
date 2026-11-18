@@ -100,11 +100,11 @@ def tag_chip(d, x, y, label, color):
 # ---------------------------------------------------------------- masthead
 def masthead(d):
     cx = W // 2
-    tracked(d, "THE WORLD IN ONE PICTURE", cx, 26, font(F_SANS_B, 22), 6, INK)
-    d.line([70, 60, W - 70, 60], fill=INK, width=2)
-    centered(d, "TUESDAY", cx, 66, font(F_SERIF_B, 62))
-    centered(d, "17 NOVEMBER 2026", cx, 132, font(F_SERIF_B, 40), RED)
-    d.rectangle([26, 182, W - 26, 187], fill=INK)
+    tracked(d, "THE WORLD IN ONE PICTURE", cx, 20, font(F_SANS_B, 20), 6, INK)
+    d.line([70, 50, W - 70, 50], fill=INK, width=2)
+    centered(d, "TUESDAY", cx, 56, font(F_SERIF_B, 50))
+    centered(d, "17 NOVEMBER 2026", cx, 108, font(F_SERIF_B, 33), RED)
+    d.rectangle([26, 146, W - 26, 151], fill=INK)
 
 
 # ---------------------------------------------------------------- world map
@@ -145,9 +145,12 @@ PINS = {
     4: (16, 7),    # California (Nvidia)
     5: (12, 4),    # Redmond (Microsoft), offset NW of pin 4
     6: (89, 7),    # Japan
-    7: (57, 8),    # Gaza / Eastern Mediterranean
+    7: (60, 8),    # Gaza / Eastern Mediterranean (nudged E to clear pin 10)
     8: (53, 6),    # Geneva
     9: (49, 4),    # Brussels / EU
+    10: (56, 7),   # Antalya, Türkiye (COP31)
+    11: (57, 13),  # DR Congo (Ebola outbreak)
+    12: (64, 11),  # Oman / SE Arabia (U19 Asia Cup final)
 }
 
 
@@ -168,15 +171,15 @@ def world_map(d, box):
         for c, ch in enumerate(row):
             if ch == "#":
                 cx = ox + (c + 0.5) * px
-                d.ellipse([cx - 3.1, cy - 3.1, cx + 3.1, cy + 3.1], fill=land)
-    pf = font(F_SANS_B, 15)
+                d.ellipse([cx - 3.0, cy - 3.0, cx + 3.0, cy + 3.0], fill=land)
+    pf = font(F_SANS_B, 14)
     for num, (c, r) in PINS.items():
         cx = ox + (c + 0.5) * px
         cy = oy + (r + 0.5) * py
         d.ellipse([cx - 11, cy - 11, cx + 11, cy + 11], fill=RED, outline=(255, 255, 255), width=2)
         s = str(num)
-        d.text((cx - text_w(d, s, pf) / 2, cy - 9), s, font=pf, fill=(255, 255, 255))
-    cap = "NINE STORIES \u00b7 FIVE CONTINENTS \u00b7 ONE DAY"
+        d.text((cx - text_w(d, s, pf) / 2, cy - 8), s, font=pf, fill=(255, 255, 255))
+    cap = "TWELVE STORIES \u00b7 FIVE CONTINENTS \u00b7 ONE DAY"
     centered(d, cap, (x0 + x1) // 2, y1 - 34, font(F_SANS_B, 19), INK)
 
 
@@ -343,37 +346,79 @@ def icon_bag(d, x, y, s):
     d.line([x + s * 0.24, y + s * 0.80, x + s * 0.76, y + s * 0.42], fill=RED, width=5)
 
 
+def icon_climate(d, x, y, s):
+    """Globe outline with a green leaf, for the COP31 draft deal."""
+    col = (52, 56, 62)
+    cx, cy, r = x + s * 0.46, y + s * 0.50, s * 0.40
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=4)
+    d.ellipse([cx - r * 0.45, cy - r, cx + r * 0.45, cy + r], outline=col, width=2)
+    d.line([cx - r, cy, cx + r, cy], fill=col, width=2)
+    leaf = (24, 130, 76)
+    lx, ly = x + s * 0.58, y + s * 0.58
+    d.polygon([(lx, ly + s * 0.30), (lx + s * 0.06, ly + s * 0.08),
+               (lx + s * 0.30, ly), (lx + s * 0.34, ly + s * 0.26),
+               (lx + s * 0.16, ly + s * 0.36)], fill=leaf)
+    d.line([lx + s * 0.03, ly + s * 0.32, lx + s * 0.28, ly + s * 0.05], fill=(255, 255, 255), width=2)
+
+
+def icon_virus(d, x, y, s):
+    """Spiked virus ball, for the DR Congo Ebola outbreak."""
+    import math
+    cx, cy, r = x + s * 0.5, y + s * 0.5, s * 0.26
+    for a in range(0, 360, 36):
+        dx, dy = math.cos(math.radians(a)), math.sin(math.radians(a))
+        x1, y1 = cx + dx * r, cy + dy * r
+        x2, y2 = cx + dx * r * 1.55, cy + dy * r * 1.55
+        d.line([x1, y1, x2, y2], fill=INK, width=3)
+        d.ellipse([x2 - 4, y2 - 4, x2 + 4, y2 + 4], fill=RED)
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(52, 56, 62))
+    for ox, oy in ((-0.10, -0.06), (0.11, 0.04), (0.0, 0.14)):
+        d.ellipse([cx + s * ox - 3, cy + s * oy - 3, cx + s * ox + 3, cy + s * oy + 3],
+                  fill=(255, 255, 255))
+
+
+def icon_ball(d, x, y, s):
+    """Red cricket ball with white seams, for the U19 Asia Cup final."""
+    cx, cy, r = x + s * 0.5, y + s * 0.5, s * 0.40
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=RED)
+    d.arc([cx - r * 1.35, cy - r, cx + r * 0.25, cy + r], 270, 90, fill=(255, 255, 255), width=3)
+    d.arc([cx - r * 0.25, cy - r, cx + r * 1.35, cy + r], 90, 270, fill=(255, 255, 255), width=3)
+    for t in (-0.45, 0.0, 0.45):
+        d.line([cx - r * 0.52, cy + r * t, cx - r * 0.34, cy + r * t], fill=(255, 255, 255), width=2)
+        d.line([cx + r * 0.34, cy + r * t, cx + r * 0.52, cy + r * t], fill=(255, 255, 255), width=2)
+
+
 # ---------------------------------------------------------------- panels
 def num_badge(d, x, y, num):
     """Red disc with a white numeral, matching the map pins."""
-    r = 13
+    r = 11
     d.ellipse([x, y, x + 2 * r, y + 2 * r], fill=RED)
-    f = font(F_SANS_B, 17)
+    f = font(F_SANS_B, 15)
     s = str(num)
-    d.text((x + r - text_w(d, s, f) / 2, y + r - 10), s, font=f, fill=(255, 255, 255))
+    d.text((x + r - text_w(d, s, f) / 2, y + r - 9), s, font=f, fill=(255, 255, 255))
     return 2 * r
 
 
-def panel(d, box, num, tag, tag_color, headline, caption, icon=None, headline_max=26):
+def panel(d, box, num, tag, tag_color, headline, caption, icon=None, headline_max=23):
     x0, y0, x1, y1 = box
     d.rectangle([x0, y0, x1, y1], fill=PAPER, outline=INK, width=2)
-    pad = 10
+    pad = 9
     bw = num_badge(d, x0 + pad, y0 + pad, num)
-    tag_f = font(F_SANS_B, 14)
-    label_w = int(text_w(d, tag, tag_f)) + 14
-    tx0 = x0 + pad + bw + 7
-    d.rectangle([tx0, y0 + pad + 1, tx0 + label_w, y0 + pad + 25], fill=tag_color)
-    d.text((tx0 + 7, y0 + pad + 5), tag, font=tag_f, fill=(255, 255, 255))
+    tag_f = font(F_SANS_B, 13)
+    label_w = int(text_w(d, tag, tag_f)) + 12
+    tx0 = x0 + pad + bw + 6
+    d.rectangle([tx0, y0 + pad, tx0 + label_w, y0 + pad + 22], fill=tag_color)
+    d.text((tx0 + 6, y0 + pad + 4), tag, font=tag_f, fill=(255, 255, 255))
     if icon:
-        icon(d, x1 - pad - 42, y0 + pad - 2, 42)
+        icon(d, x1 - pad - 36, y0 + pad - 3, 36)
     tx = x0 + pad
     tw = (x1 - x0) - 2 * pad
-    hy = y0 + pad + 38
-    hf, hlines, hlh = fit_block(d, headline, F_SANS_B, headline_max, 19, tw,
-                                (y1 - y0) - 96, 1.12)
+    hy = y0 + pad + 31
+    hf, hlines, hlh = fit_block(d, headline, F_SANS_B, headline_max, 15, tw,
+                                (y1 - y0) - 82, 1.12)
     hy = draw_lines(d, hlines, tx, hy, hf, hlh)
-    cy = hy + 4
-    cf, clines, clh = fit_block(d, caption, F_SANS, 17, 13, tw, (y1 - 7) - cy, 1.2)
+    cy = hy + 3
+    cf, clines, clh = fit_block(d, caption, F_SANS, 15, 11, tw, (y1 - 6) - cy, 1.18)
     draw_lines(d, clines, tx, cy, cf, clh)
 
 
@@ -431,6 +476,18 @@ STORIES = [
      "EU CHARGES TEMU OVER ILLEGAL GOODS",
      "Brussels says the platform does too little to stop illegal sales.",
      icon_bag),
+    (10, "CLIMATE", (24, 110, 76),
+     "COP31 DRAFT CALLS TIME ON FOSSIL FUELS",
+     "Antalya text urges a faster phase-out and $120bn a year for "
+     "climate adaptation by 2035.", icon_climate),
+    (11, "AFRICA", (168, 84, 16),
+     "CONGO EBOLA 'STILL NOT UNDER CONTROL'",
+     "Africa CDC counts 11,200 cases and 5,500 deaths in six months; "
+     "no vaccine for this strain.", icon_virus),
+    (12, "SPORT", (16, 104, 138),
+     "INDIA WIN U19 ASIA CUP IN LAST-BALL THRILLER",
+     "Ulva's unbeaten 49 steals a one-wicket win over Pakistan in "
+     "Oman; a ninth title for India.", icon_ball),
 ]
 
 
@@ -441,20 +498,20 @@ def build():
     d.rectangle([17, 17, W - 17, H - 17], outline=INK, width=1)
 
     masthead(d)
-    world_map(d, (26, 198, W - 26, 436))
+    world_map(d, (26, 162, W - 26, 392))
 
     gx0, gx1 = 26, W - 26
     colw = (gx1 - gx0 - 20) // 3
-    rows_y = [(448, 612), (620, 784), (792, 956)]
+    rows_y = [(404, 534), (542, 672), (680, 810), (818, 948)]
     for i, (num, tag, color, head, cap, icon) in enumerate(STORIES):
         r, c = divmod(i, 3)
         x0 = gx0 + c * (colw + 10)
         box = (x0, rows_y[r][0], x0 + colw, rows_y[r][1])
         panel(d, box, num, tag, color, head, cap, icon)
 
-    d.line([70, 966, W - 70, 966], fill=INK, width=2)
-    centered(d, "17 NOV 2026 \u00b7 THE DAY'S NEWS IN ONE IMAGE", W // 2, 974,
-             font(F_SANS_B, 19))
+    d.line([70, 958, W - 70, 958], fill=INK, width=2)
+    centered(d, "17 NOV 2026 \u00b7 THE DAY'S NEWS IN ONE IMAGE", W // 2, 966,
+             font(F_SANS_B, 18))
     img.save(OUT, "PNG")
     print("wrote", OUT, os.path.getsize(OUT), "bytes")
 
